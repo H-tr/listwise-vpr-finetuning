@@ -39,8 +39,6 @@ This research project aims to enhance Visual Place Recognition (VPR) in indoor a
    python application.py --input_video_path /path/to/your/video
    ```
 
-3. [Any additional instructions or parameters if needed]
-
 ## Results
 
 [Include any key findings, performance metrics, or visualizations that showcase the effectiveness of the proposed method.]
