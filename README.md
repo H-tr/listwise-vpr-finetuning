@@ -36,7 +36,7 @@ This research project aims to enhance Visual Place Recognition (VPR) in indoor a
 2. Run the fine-tuning script:
 
    ```bash
-   python fine_tune.py --input_video_path /path/to/your/video
+   python application.py --input_video_path /path/to/your/video
    ```
 
 3. [Any additional instructions or parameters if needed]
@@ -51,4 +51,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-[Give credit to any external libraries, frameworks, or datasets used in the project.]
+Use this space to list resources you find helpful and would like to give credit to. I've included a few of my favorites to kick things off!
+
+* [NetVLAD PyTorch](https://github.com/Nanne/pytorch-NetVlad/blob/master/netvlad.py)
