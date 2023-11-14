@@ -14,11 +14,6 @@ This research project aims to enhance Visual Place Recognition (VPR) in indoor a
 
 ## How to Use
 
-### Prerequisites
-
-- Python 3.x
-- [List of required libraries and dependencies]
-
 ### Installation
 
 1. Clone the repository:
