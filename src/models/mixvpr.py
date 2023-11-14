@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 import numpy as np
+from utils.utils import print_nb_params
 
 
 class FeatureMixerLayer(nn.Module):
@@ -67,13 +68,6 @@ class MixVPR(nn.Module):
 
 
 # -------------------------------------------------------------------------------
-
-def print_nb_params(m):
-    model_parameters = filter(lambda p: p.requires_grad, m.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print(f'Trainable parameters: {params/1e6:.3}M')
-
-
 def main():
     x = torch.randn(1, 1024, 20, 20)
     agg = MixVPR(
