@@ -1,7 +1,7 @@
 import os
 import cv2
 import argparse
-from tqdm import tqdm
+from rich.progress import Progress
 
 
 def split_video_to_frames(source_folder, destination_folder, fps):
@@ -33,11 +33,10 @@ def split_video_to_frames(source_folder, destination_folder, fps):
 
         # Loop through the frames and save them with a progress bar
         frame_count = 0
-        with tqdm(
-            total=total_frames // frame_interval,
-            desc=f"Processing {video_file}",
-            unit="frames",
-        ) as pbar:
+        with Progress() as progress:
+            task1 = progress.add_task(
+                f"[red]Processing {video_file}", total=total_frames // frame_interval
+            )
             while frame_count < total_frames // frame_interval:
                 # Capture the frame
                 ret, frame = cap.read()
@@ -46,8 +45,10 @@ def split_video_to_frames(source_folder, destination_folder, fps):
                     break
 
                 # Save frame in the destination folder
+                num_frame = str(frame_count).zfill(5)
                 frame_destination_path = os.path.join(
-                    video_destination_folder, f"{video_name}_frame_{frame_count}.jpg"
+                    video_destination_folder,
+                    f"{video_name}_frame_" + num_frame + ".jpg",
                 )
                 cv2.imwrite(frame_destination_path, frame)
 
@@ -58,15 +59,10 @@ def split_video_to_frames(source_folder, destination_folder, fps):
                 for _ in range(frame_interval - 1):
                     cap.read()
 
-                # Update the progress bar
-                pbar.update(1)
+                progress.update(task1, advance=1)
 
         # Release the video capture object
         cap.release()
-
-        print(
-            f"Frames extracted from {video_file} and saved to {video_destination_folder}"
-        )
 
 
 if __name__ == "__main__":
