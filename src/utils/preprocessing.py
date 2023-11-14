@@ -33,8 +33,12 @@ def split_video_to_frames(source_folder, destination_folder, fps):
 
         # Loop through the frames and save them with a progress bar
         frame_count = 0
-        with tqdm(total=total_frames//frame_interval, desc=f"Processing {video_file}", unit="frames") as pbar:
-            while frame_count < total_frames//frame_interval:
+        with tqdm(
+            total=total_frames // frame_interval,
+            desc=f"Processing {video_file}",
+            unit="frames",
+        ) as pbar:
+            while frame_count < total_frames // frame_interval:
                 # Capture the frame
                 ret, frame = cap.read()
 
@@ -42,7 +46,9 @@ def split_video_to_frames(source_folder, destination_folder, fps):
                     break
 
                 # Save frame in the destination folder
-                frame_destination_path = os.path.join(video_destination_folder, f"{video_name}_frame_{frame_count}.jpg")
+                frame_destination_path = os.path.join(
+                    video_destination_folder, f"{video_name}_frame_{frame_count}.jpg"
+                )
                 cv2.imwrite(frame_destination_path, frame)
 
                 # Move to the next frame
