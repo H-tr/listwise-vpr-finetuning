@@ -17,6 +17,7 @@ CHANNELS_NUM_IN_LAST_CONV = {
     "VGG16": 512,
 }
 
+
 class VPRNetwork(nn.Module):
     def __init__(self, backbone: str, aggregation: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -27,6 +28,7 @@ class VPRNetwork(nn.Module):
         x = self.backbone(x)
         x = self.aggregation(x)
         return x
+
 
 def get_pretrained_torchvision_model(backbone_name: str) -> torch.nn.Module:
     """This function takes the name of a backbone and returns the corresponding pretrained
@@ -46,6 +48,7 @@ def get_pretrained_torchvision_model(backbone_name: str) -> torch.nn.Module:
     ):  # Older versions of pytorch require to pass pretrained=True
         model = getattr(torchvision.models, backbone_name.lower())(pretrained=True)
     return model
+
 
 def get_backbone(backbone_name: str):
     backbone = get_pretrained_torchvision_model(backbone_name)
@@ -74,6 +77,7 @@ def get_backbone(backbone_name: str):
     features_dim = CHANNELS_NUM_IN_LAST_CONV[backbone_name]
 
     return backbone, features_dim
+
 
 def get_aggregation(aggregation_name: str):
     if aggregation_name == "NetVLAD":
