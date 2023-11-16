@@ -38,10 +38,3 @@ class CosPlace(nn.Module):
         x = self.fc(x)
         x = F.normalize(x, p=2, dim=1)
         return x
-
-
-if __name__ == "__main__":
-    x = torch.randn(4, 2048, 10, 10)
-    m = CosPlace(2048, 512)
-    r = m(x)
-    print(r.shape)
