@@ -4,7 +4,7 @@ import torch
 from src.models import netvlad, cosplace, mixvpr, network
 
 
-class TestNetwork(unittest.TestCase):
+class TestAggregation(unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
         self.n_clusters: int = 64
@@ -44,3 +44,15 @@ class TestNetwork(unittest.TestCase):
         )
         out: torch.Tensor = model(self.x)
         assert out.shape == (self.batch_size, self.output_dim * out_rows)
+
+
+class TestNetwork(unittest.TestCase):
+    def __init__(self, methodName: str = "runTest") -> None:
+        super().__init__(methodName)
+
+    def test_resnet50_netvlad(self) -> None:
+        backbone: str = "ResNet50"
+        aggregation: str = "NetVLAD"
+        model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation)
+        out: torch.Tensor = model(self.x)
+        assert out.shape == (self.batch_size, self.n_clusters * self.dim)

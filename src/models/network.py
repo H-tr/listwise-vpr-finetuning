@@ -21,8 +21,8 @@ CHANNELS_NUM_IN_LAST_CONV = {
 class VPRNetwork(nn.Module):
     def __init__(self, backbone: str, aggregation: str, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.backbone = get_backbone(backbone)
-        self.aggregation = get_aggregation(aggregation)
+        self.backbone, feature_dimention = get_backbone(backbone)
+        self.aggregation = get_aggregation(aggregation, feature_dimention)
 
     def forward(self, x):
         x = self.backbone(x)
@@ -79,12 +79,20 @@ def get_backbone(backbone_name: str):
     return backbone, features_dim
 
 
-def get_aggregation(aggregation_name: str):
+def get_aggregation(aggregation_name: str, feature_dim: int) -> torch.nn.Module:
     if aggregation_name == "NetVLAD":
-        return NetVLAD(num_clusters=64, dim=512, alpha=1.0)
+        return NetVLAD(num_clusters=64, dim=512)
     elif aggregation_name == "CosPlace":
-        return CosPlace(in_dim=512, out_dim=512)
+        return CosPlace(in_dim=feature_dim, out_dim=512)
     elif aggregation_name == "MixVPR":
-        return MixVPR()
+        return MixVPR(
+            in_channels=feature_dim,
+            in_h=20,
+            in_w=20,
+            out_channels=512,
+            mix_depth=4,
+            mlp_ratio=1,
+            out_rows=4,
+        )
     else:
         raise ValueError(f"Unknown aggregation: {aggregation_name}")
