@@ -68,3 +68,18 @@ class TestNetwork(unittest.TestCase):
             model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation, n_clusters=self.n_clusters)
             out: torch.Tensor = model(self.x)
             assert out.shape == (self.batch_size, self.n_clusters * model.feature_dimention)
+            
+    def test_backbones_cosplace(self) -> None:
+        for backbone in BACKBONES:
+            aggregation: str = "CosPlace"
+            model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation, output_dim=self.output_dim)
+            out: torch.Tensor = model(self.x)
+            assert out.shape == (self.batch_size, self.output_dim)
+            
+    def test_backbones_mixvpr(self) -> None:
+        for backbone in BACKBONES:
+            aggregation: str = "MixVPR"
+            out_rows = 4
+            model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation, output_dim=self.output_dim, out_rows=out_rows)
+            out: torch.Tensor = model(self.x)
+            assert out.shape == (self.batch_size, self.output_dim * out_rows)

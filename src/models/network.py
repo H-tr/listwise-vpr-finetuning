@@ -24,11 +24,12 @@ class VPRNetwork(nn.Module):
         aggregation: str, 
         n_clusters: int = 64,
         output_dim: int = 512,
+        out_rows: int = 4,
         *args, **kwargs
     ) -> None:
         super().__init__(*args, **kwargs)
         self.backbone, self.feature_dimention = get_backbone(backbone)
-        self.aggregation = get_aggregation(aggregation, self.feature_dimention, n_clusters, output_dim)
+        self.aggregation = get_aggregation(aggregation, self.feature_dimention, n_clusters, output_dim, out_rows)
 
     def forward(self, x):
         x = self.backbone(x)
@@ -88,7 +89,8 @@ def get_backbone(backbone_name: str):
 def get_aggregation(aggregation_name: str, 
                     feature_dim: int, 
                     n_clusters: int, 
-                    out_dim: int
+                    out_dim: int,
+                    out_rows: int
     ) -> torch.nn.Module:
     if aggregation_name == "NetVLAD":
         return NetVLAD(num_clusters=n_clusters, dim=feature_dim)
@@ -99,10 +101,10 @@ def get_aggregation(aggregation_name: str,
             in_channels=feature_dim,
             in_h=20,
             in_w=20,
-            out_channels=512,
+            out_channels=out_dim,
             mix_depth=4,
             mlp_ratio=1,
-            out_rows=4,
+            out_rows=out_rows,
         )
     else:
         raise ValueError(f"Unknown aggregation: {aggregation_name}")
