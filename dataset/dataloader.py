@@ -1,6 +1,7 @@
 from PIL import Image
 import torch.utils.data as data
 import os
+from dataset.dataset_utils import read_images_paths
 
 
 class SeqDataset(data.Dataset):
