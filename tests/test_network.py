@@ -8,7 +8,6 @@ class TestAggregation(unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
         self.n_clusters: int = 64
-        self.dim: int = 1024
         self.batch_size: int = 32
         self.input_dim: int = 1024
         self.output_dim: int = 512
@@ -21,10 +20,10 @@ class TestAggregation(unittest.TestCase):
 
     def test_netvlad(self) -> None:
         model: netvlad.NetVLAD = netvlad.NetVLAD(
-            num_clusters=self.n_clusters, dim=self.dim
+            num_clusters=self.n_clusters, dim=self.input_dim
         )
         out: torch.Tensor = model(self.x)
-        assert out.shape == (self.batch_size, self.n_clusters * self.dim)
+        assert out.shape == (self.batch_size, self.n_clusters * self.input_dim)
 
     def test_cosplace(self) -> None:
         model: cosplace.CosPlace = cosplace.CosPlace(self.input_dim, self.output_dim)
@@ -49,10 +48,20 @@ class TestAggregation(unittest.TestCase):
 class TestNetwork(unittest.TestCase):
     def __init__(self, methodName: str = "runTest") -> None:
         super().__init__(methodName)
+        self.n_clusters: int = 64
+        self.batch_size: int = 32
+        self.input_dim: int = 3
+        self.output_dim: int = 512
+        self.input_height: int = 640
+        self.input_width: int = 480
+        # input format: (batch_size, channels, height, width)
+        self.x: torch.Tensor = torch.randn(
+            self.batch_size, self.input_dim, self.input_height, self.input_width
+        )
 
     def test_resnet50_netvlad(self) -> None:
         backbone: str = "ResNet50"
         aggregation: str = "NetVLAD"
-        model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation)
+        model: network.VPRNetwork = network.VPRNetwork(backbone, aggregation, n_clusters=self.n_clusters)
         out: torch.Tensor = model(self.x)
-        assert out.shape == (self.batch_size, self.n_clusters * self.dim)
+        assert out.shape == (self.batch_size, self.n_clusters * model.feature_dimention)
