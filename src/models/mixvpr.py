@@ -70,25 +70,3 @@ class MixVPR(nn.Module):
         x = self.row_proj(x)
         x = F.normalize(x.flatten(1), p=2, dim=-1)
         return x
-
-
-# -------------------------------------------------------------------------------
-def main():
-    x = torch.randn(1, 1024, 20, 20)
-    agg = MixVPR(
-        in_channels=1024,
-        in_h=20,
-        in_w=20,
-        out_channels=1024,
-        mix_depth=4,
-        mlp_ratio=1,
-        out_rows=4,
-    )
-
-    print_nb_params(agg)
-    output = agg(x)
-    print(output.shape)
-
-
-if __name__ == "__main__":
-    main()
