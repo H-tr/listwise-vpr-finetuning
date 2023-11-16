@@ -3,3 +3,4 @@ rich
 torch
 torchvision
 scikit-learn
+icecream
