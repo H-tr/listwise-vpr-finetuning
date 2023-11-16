@@ -99,8 +99,6 @@ def get_aggregation(aggregation_name: str,
     elif aggregation_name == "MixVPR":
         return MixVPR(
             in_channels=feature_dim,
-            in_h=20,
-            in_w=20,
             out_channels=out_dim,
             mix_depth=4,
             mlp_ratio=1,

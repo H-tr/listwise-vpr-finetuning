@@ -37,8 +37,6 @@ class TestAggregation(unittest.TestCase):
         out_rows = 4
         model: mixvpr.MixVPR = mixvpr.MixVPR(
             in_channels=self.input_dim,
-            in_h=20,
-            in_w=20,
             out_channels=self.output_dim,
             mix_depth=4,
             mlp_ratio=1,

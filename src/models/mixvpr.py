@@ -30,8 +30,6 @@ class MixVPR(nn.Module):
     def __init__(
         self,
         in_channels=1024,
-        in_h=20,
-        in_w=20,
         out_channels=512,
         mix_depth=1,
         mlp_ratio=1,
@@ -39,8 +37,6 @@ class MixVPR(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.in_h = in_h  # height of input feature maps
-        self.in_w = in_w  # width of input feature maps
         self.in_channels = in_channels  # depth of input feature maps
 
         self.out_channels = out_channels  # depth wise projection dimension
@@ -50,18 +46,23 @@ class MixVPR(nn.Module):
         self.mlp_ratio = (
             mlp_ratio  # ratio of the mid projection layer in the mixer block
         )
-
+        self.mix = None
+        
+    def create_mix_layer(self, in_h, in_w):
         hw = in_h * in_w
         self.mix = nn.Sequential(
             *[
-                FeatureMixerLayer(in_dim=hw, mlp_ratio=mlp_ratio)
+                FeatureMixerLayer(in_dim=hw, mlp_ratio=self.mlp_ratio)
                 for _ in range(self.mix_depth)
             ]
         )
-        self.channel_proj = nn.Linear(in_channels, out_channels)
-        self.row_proj = nn.Linear(hw, out_rows)
+        self.channel_proj = nn.Linear(self.in_channels, self.out_channels)
+        self.row_proj = nn.Linear(hw, self.out_rows)
 
     def forward(self, x):
+        in_h, in_w = x.shape[-2:]
+        if self.mix is None:
+            self.create_mix_layer(in_h, in_w)
         x = x.flatten(2)
         x = self.mix(x)
         x = x.permute(0, 2, 1)
