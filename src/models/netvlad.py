@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
-from utils.utils import print_nb_params
+from utils import print_nb_params
 
 
 # based on https://github.com/lyakaap/NetVLAD-pytorch/blob/master/netvlad.py
@@ -92,16 +92,3 @@ class NetVLAD(nn.Module):
         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
 
         return vlad
-
-
-def main():
-    x = torch.randn(1, 1024, 20, 20)
-    netvlad = NetVLAD(num_clusters=64, dim=1024)
-    print(netvlad(x).shape)
-    # torch.Size([1, 4096])
-    print_nb_params(netvlad)
-    # Trainable parameters: 0.262M
-
-
-if __name__ == "__main__":
-    main()

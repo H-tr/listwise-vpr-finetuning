@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 import numpy as np
-from utils.utils import print_nb_params
+from utils import print_nb_params
 
 
 class FeatureMixerLayer(nn.Module):
