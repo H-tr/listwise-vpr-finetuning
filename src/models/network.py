@@ -3,9 +3,9 @@ import logging
 import torchvision
 import torch.nn as nn
 
-from netvlad import NetVLAD
-from cosplace import CosPlace
-from mixvpr import MixVPR
+from models.netvlad import NetVLAD
+from models.cosplace import CosPlace
+from models.mixvpr import MixVPR
 
 
 # The number of channels in the last convolutional layer, the one before average pooling
