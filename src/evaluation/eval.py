@@ -7,8 +7,9 @@ from models import network
 from dataset.dataloader import SeqDataset
 
 
-
-def evaluate_model(backbone: str, aggregation: str, resume_model: str, test_set_folder: str):
+def evaluate_model(
+    backbone: str, aggregation: str, resume_model: str, test_set_folder: str
+):
     #### Model
     model = network.VPRNetwork(backbone, aggregation)
 
@@ -33,4 +34,10 @@ def evaluate_model(backbone: str, aggregation: str, resume_model: str, test_set_
     recalls, recalls_str = test.test(test_ds, model)
     logging.info(f"{test_ds}: {recalls_str}")
 
-evaluate_model("ResNet50", "NetVLAD", "experiments/saved_models/ResNet50_512.pth", "data/processed/pioneer_hall")
+
+evaluate_model(
+    "ResNet50",
+    "NetVLAD",
+    "experiments/saved_models/ResNet50_512.pth",
+    "data/processed/pioneer_hall",
+)

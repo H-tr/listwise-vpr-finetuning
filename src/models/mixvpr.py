@@ -47,17 +47,22 @@ class MixVPR(nn.Module):
             mlp_ratio  # ratio of the mid projection layer in the mixer block
         )
         self.mix = None
+        self.channel_proj = nn.Linear(self.in_channels, self.out_channels)
 
     def create_mix_layer(self, in_h, in_w):
         hw = in_h * in_w
+
         self.mix = nn.Sequential(
             *[
                 FeatureMixerLayer(in_dim=hw, mlp_ratio=self.mlp_ratio)
                 for _ in range(self.mix_depth)
             ]
         )
-        self.channel_proj = nn.Linear(self.in_channels, self.out_channels)
         self.row_proj = nn.Linear(hw, self.out_rows)
+        # if channel_proj is in cuda, then mix and row_proj should be in cuda too
+        if self.channel_proj.weight.is_cuda:
+            self.mix = self.mix.to("cuda")
+            self.row_proj = self.row_proj.to("cuda")
 
     def forward(self, x):
         in_h, in_w = x.shape[-2:]
