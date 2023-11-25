@@ -47,7 +47,7 @@ class MixVPR(nn.Module):
             mlp_ratio  # ratio of the mid projection layer in the mixer block
         )
         self.mix = None
-        
+
     def create_mix_layer(self, in_h, in_w):
         hw = in_h * in_w
         self.mix = nn.Sequential(
