@@ -54,3 +54,4 @@ class TestDataset(data.Dataset):
 
     def __len__(self):
         return len(self.data)
+
