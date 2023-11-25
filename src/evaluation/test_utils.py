@@ -8,3 +8,4 @@ def test(eval_ds: Dataset, model: nn.Module):
     model = model.eval()
     with torch.no_grad():
         logging.info("Extracting database descriptors...")
+        
