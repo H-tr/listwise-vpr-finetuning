@@ -9,3 +9,5 @@ tqdm
 h5py
 faiss-gpu
 tensorboardX
+torchscan
+googledrivedownloader

@@ -1,492 +1,300 @@
-from __future__ import print_function
-import argparse
-from math import log10, ceil
-import random, json
-from os.path import join, exists, isfile, realpath, dirname
-from os import makedirs, remove, chdir, environ
-from utils.utils import save_checkpoint
-
+import math
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.autograd import Variable
-from torch.utils.data import DataLoader, SubsetRandomSampler
-from torch.utils.data.dataset import Subset
-import torchvision.transforms as transforms
-from PIL import Image
-from datetime import datetime
-import torchvision.datasets as datasets
-import torchvision.models as models
-from utils.arg_parser import parser
-import h5py
-
-from tensorboardX import SummaryWriter
+import logging
 import numpy as np
-from models.netvlad import NetVLAD, L2Norm, Flatten, get_clusters
-from evaluation.test_utils import test
+from tqdm import tqdm
+import torch.nn as nn
+import multiprocessing
+from os.path import join
+from datetime import datetime
+import torchvision.transforms as transforms
+from torch.utils.data.dataloader import DataLoader
 
+from src.utils import util
+from utils import arg_parser
+from evaluation import test_utils as test
+from utils import commons
+from dataset import triplet_dataset as datasets_ws
+from models import network
+from models.sync_batchnorm import convert_model
+from models.functional import sare_ind, sare_joint
 
-opt = parser.parse_args()
+torch.backends.cudnn.benchmark = True  # Provides a speedup
+#### Initial setup: parser, logging...
+args = arg_parser.parse_arguments()
+start_time = datetime.now()
+args.save_dir = join("logs", args.save_dir, start_time.strftime("%Y-%m-%d_%H-%M-%S"))
+commons.setup_logging(args.save_dir)
+commons.make_deterministic(args.seed)
+logging.info(f"Arguments: {args}")
+logging.info(f"The outputs are being saved in {args.save_dir}")
+logging.info(
+    f"Using {torch.cuda.device_count()} GPUs and {multiprocessing.cpu_count()} CPUs"
+)
 
-def train(
-    epoch,
-    train_set,
-    model,
-    optimizer,
-    encoder_dim,
-    criterion,
-    writer,
-    whole_training_data_loader,
-    whole_train_set,
-    device,
-    cuda,
-    dataset,
-):
-    epoch_loss = 0
-    startIter = 1  # keep track of batch iter across subsets for logging
+#### Creation of Datasets
+logging.debug(f"Loading dataset {args.dataset_name} from folder {args.datasets_folder}")
 
-    if opt.cacheRefreshRate > 0:
-        subsetN = ceil(len(train_set) / opt.cacheRefreshRate)
-        # TODO randomise the arange before splitting?
-        subsetIdx = np.array_split(np.arange(len(train_set)), subsetN)
-    else:
-        subsetN = 1
-        subsetIdx = [np.arange(len(train_set))]
+triplets_ds = datasets_ws.TripletsDataset(
+    args, args.datasets_folder, args.dataset_name, "train", args.negs_num_per_query
+)
+logging.info(f"Train query set: {triplets_ds}")
 
-    nBatches = (len(train_set) + opt.batchSize - 1) // opt.batchSize
+val_ds = datasets_ws.BaseDataset(args, args.datasets_folder, args.dataset_name, "val")
+logging.info(f"Val set: {val_ds}")
 
-    for subIter in range(subsetN):
-        print("====> Building Cache")
-        model.eval()
-        train_set.cache = join(opt.cachePath, train_set.whichSet + "_feat_cache.hdf5")
-        with h5py.File(train_set.cache, mode="w") as h5:
-            pool_size = encoder_dim
-            if opt.pooling.lower() == "netvlad":
-                pool_size *= opt.num_clusters
-            h5feat = h5.create_dataset(
-                "features", [len(whole_train_set), pool_size], dtype=np.float32
-            )
-            with torch.no_grad():
-                for iteration, (input, indices) in enumerate(
-                    whole_training_data_loader, 1
-                ):
-                    input = input.to(device)
-                    image_encoding = model.encoder(input)
-                    vlad_encoding = model.pool(image_encoding)
-                    h5feat[indices.detach().numpy(), :] = (
-                        vlad_encoding.detach().cpu().numpy()
-                    )
-                    del input, image_encoding, vlad_encoding
+test_ds = datasets_ws.BaseDataset(args, args.datasets_folder, args.dataset_name, "test")
+logging.info(f"Test set: {test_ds}")
 
-        sub_train_set = Subset(dataset=train_set, indices=subsetIdx[subIter])
+#### Initialize model
+model = network.VPRNetwork(args)
+model = model.to(args.device)
+if args.aggregation in ["netvlad", "crn"]:  # If using NetVLAD layer, initialize it
+    if not args.resume:
+        triplets_ds.is_inference = True
+        model.aggregation.initialize_netvlad_layer(args, triplets_ds, model.backbone)
+    args.features_dim *= args.netvlad_clusters
 
-        training_data_loader = DataLoader(
-            dataset=sub_train_set,
-            num_workers=opt.threads,
-            batch_size=opt.batchSize,
-            shuffle=True,
-            collate_fn=dataset.collate_fn,
-            pin_memory=cuda,
+model = torch.nn.DataParallel(model)
+
+#### Setup Optimizer and Loss
+if args.aggregation == "crn":
+    crn_params = list(model.module.aggregation.crn.parameters())
+    net_params = list(model.module.backbone.parameters()) + list(
+        [
+            m[1]
+            for m in model.module.aggregation.named_parameters()
+            if not m[0].startswith("crn")
+        ]
+    )
+    if args.optim == "adam":
+        optimizer = torch.optim.Adam(
+            [
+                {"params": crn_params, "lr": args.lr_crn_layer},
+                {"params": net_params, "lr": args.lr_crn_net},
+            ]
+        )
+        logging.info("You're using CRN with Adam, it is advised to use SGD")
+    elif args.optim == "sgd":
+        optimizer = torch.optim.SGD(
+            [
+                {
+                    "params": crn_params,
+                    "lr": args.lr_crn_layer,
+                    "momentum": 0.9,
+                    "weight_decay": 0.001,
+                },
+                {
+                    "params": net_params,
+                    "lr": args.lr_crn_net,
+                    "momentum": 0.9,
+                    "weight_decay": 0.001,
+                },
+            ]
+        )
+else:
+    if args.optim == "adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    elif args.optim == "sgd":
+        optimizer = torch.optim.SGD(
+            model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.001
         )
 
-        print("Allocated:", torch.cuda.memory_allocated())
-        print("Cached:", torch.cuda.memory_cached())
+if args.criterion == "triplet":
+    criterion_triplet = nn.TripletMarginLoss(margin=args.margin, p=2, reduction="sum")
+elif args.criterion == "sare_ind":
+    criterion_triplet = sare_ind
+elif args.criterion == "sare_joint":
+    criterion_triplet = sare_joint
 
-        model.train()
-        for iteration, (query, positives, negatives, negCounts, indices) in enumerate(
-            training_data_loader, startIter
-        ):
-            # some reshaping to put query, pos, negs in a single (N, 3, H, W) tensor
-            # where N = batchSize * (nQuery + nPos + nNeg)
-            if query is None:
-                continue  # in case we get an empty batch
+#### Resume model, optimizer, and other training parameters
+if args.resume:
+    if args.aggregation != "crn":
+        (
+            model,
+            optimizer,
+            best_r5,
+            start_epoch_num,
+            not_improved_num,
+        ) = util.resume_train(args, model, optimizer)
+    else:
+        # CRN uses pretrained NetVLAD, then requires loading with strict=False and
+        # does not load the optimizer from the checkpoint file.
+        model, _, best_r5, start_epoch_num, not_improved_num = util.resume_train(
+            args, model, strict=False
+        )
+    logging.info(
+        f"Resuming from epoch {start_epoch_num} with best recall@5 {best_r5:.1f}"
+    )
+else:
+    best_r5 = start_epoch_num = not_improved_num = 0
 
-            B, C, H, W = query.shape
-            nNeg = torch.sum(negCounts)
-            input = torch.cat([query, positives, negatives])
+if args.backbone.startswith("vit"):
+    logging.info(f"Output dimension of the model is {args.features_dim}")
+else:
+    logging.info(
+        f"Output dimension of the model is {args.features_dim}, with {util.get_flops(model, args.resize)}"
+    )
 
-            input = input.to(device)
-            image_encoding = model.encoder(input)
-            vlad_encoding = model.pool(image_encoding)
 
-            vladQ, vladP, vladN = torch.split(vlad_encoding, [B, B, nNeg])
+if torch.cuda.device_count() >= 2:
+    # When using more than 1GPU, use sync_batchnorm for torch.nn.DataParallel
+    model = convert_model(model)
+    model = model.cuda()
+
+#### Training loop
+for epoch_num in range(start_epoch_num, args.epochs_num):
+    logging.info(f"Start training epoch: {epoch_num:02d}")
+
+    epoch_start_time = datetime.now()
+    epoch_losses = np.zeros((0, 1), dtype=np.float32)
+
+    # How many loops should an epoch last (default is 5000/1000=5)
+    loops_num = math.ceil(args.queries_per_epoch / args.cache_refresh_rate)
+    for loop_num in range(loops_num):
+        logging.debug(f"Cache: {loop_num} / {loops_num}")
+
+        # Compute triplets to use in the triplet loss
+        triplets_ds.is_inference = True
+        triplets_ds.compute_triplets(args, model)
+        triplets_ds.is_inference = False
+
+        triplets_dl = DataLoader(
+            dataset=triplets_ds,
+            num_workers=args.num_workers,
+            batch_size=args.train_batch_size,
+            collate_fn=datasets_ws.collate_fn,
+            pin_memory=(args.device == "cuda"),
+            drop_last=True,
+        )
+
+        model = model.train()
+
+        # images shape: (train_batch_size*12)*3*H*W ; by default train_batch_size=4, H=480, W=640
+        # triplets_local_indexes shape: (train_batch_size*10)*3 ; because 10 triplets per query
+        for images, triplets_local_indexes, _ in tqdm(triplets_dl, ncols=100):
+            # Flip all triplets or none
+            if args.horizontal_flip:
+                images = transforms.RandomHorizontalFlip()(images)
+
+            # Compute features of all images (images contains queries, positives and negatives)
+            features = model(images.to(args.device))
+            loss_triplet = 0
+
+            if args.criterion == "triplet":
+                triplets_local_indexes = torch.transpose(
+                    triplets_local_indexes.view(
+                        args.train_batch_size, args.negs_num_per_query, 3
+                    ),
+                    1,
+                    0,
+                )
+                for triplets in triplets_local_indexes:
+                    queries_indexes, positives_indexes, negatives_indexes = triplets.T
+                    loss_triplet += criterion_triplet(
+                        features[queries_indexes],
+                        features[positives_indexes],
+                        features[negatives_indexes],
+                    )
+            elif args.criterion == "sare_joint":
+                # sare_joint needs to receive all the negatives at once
+                triplet_index_batch = triplets_local_indexes.view(
+                    args.train_batch_size, 10, 3
+                )
+                for batch_triplet_index in triplet_index_batch:
+                    q = features[batch_triplet_index[0, 0]].unsqueeze(
+                        0
+                    )  # obtain query as tensor of shape 1xn_features
+                    p = features[batch_triplet_index[0, 1]].unsqueeze(
+                        0
+                    )  # obtain positive as tensor of shape 1xn_features
+                    n = features[
+                        batch_triplet_index[:, 2]
+                    ]  # obtain negatives as tensor of shape 10xn_features
+                    loss_triplet += criterion_triplet(q, p, n)
+            elif args.criterion == "sare_ind":
+                for triplet in triplets_local_indexes:
+                    # triplet is a 1-D tensor with the 3 scalars indexes of the triplet
+                    q_i, p_i, n_i = triplet
+                    loss_triplet += criterion_triplet(
+                        features[q_i : q_i + 1],
+                        features[p_i : p_i + 1],
+                        features[n_i : n_i + 1],
+                    )
+
+            del features
+            loss_triplet /= args.train_batch_size * args.negs_num_per_query
 
             optimizer.zero_grad()
-
-            # calculate loss for each Query, Positive, Negative triplet
-            # due to potential difference in number of negatives have to
-            # do it per query, per negative
-            loss = 0
-            for i, negCount in enumerate(negCounts):
-                for n in range(negCount):
-                    negIx = (torch.sum(negCounts[:i]) + n).item()
-                    loss += criterion(
-                        vladQ[i : i + 1], vladP[i : i + 1], vladN[negIx : negIx + 1]
-                    )
-
-            loss /= nNeg.float().to(device)  # normalise by actual number of negatives
-            loss.backward()
+            loss_triplet.backward()
             optimizer.step()
-            del input, image_encoding, vlad_encoding, vladQ, vladP, vladN
-            del query, positives, negatives
 
-            batch_loss = loss.item()
-            epoch_loss += batch_loss
+            # Keep track of all losses by appending them to epoch_losses
+            batch_loss = loss_triplet.item()
+            epoch_losses = np.append(epoch_losses, batch_loss)
+            del loss_triplet
 
-            if iteration % 50 == 0 or nBatches <= 10:
-                print(
-                    "==> Epoch[{}]({}/{}): Loss: {:.4f}".format(
-                        epoch, iteration, nBatches, batch_loss
-                    ),
-                    flush=True,
-                )
-                writer.add_scalar(
-                    "Train/Loss", batch_loss, ((epoch - 1) * nBatches) + iteration
-                )
-                writer.add_scalar(
-                    "Train/nNeg", nNeg, ((epoch - 1) * nBatches) + iteration
-                )
-                print("Allocated:", torch.cuda.memory_allocated())
-                print("Cached:", torch.cuda.memory_cached())
+        logging.debug(
+            f"Epoch[{epoch_num:02d}]({loop_num}/{loops_num}): "
+            + f"current batch triplet loss = {batch_loss:.4f}, "
+            + f"average epoch triplet loss = {epoch_losses.mean():.4f}"
+        )
 
-        startIter += len(training_data_loader)
-        del training_data_loader, loss
-        optimizer.zero_grad()
-        torch.cuda.empty_cache()
-        remove(train_set.cache)  # delete HDF5 cache
-
-    avg_loss = epoch_loss / nBatches
-
-    print(
-        "===> Epoch {} Complete: Avg. Loss: {:.4f}".format(epoch, avg_loss), flush=True
+    logging.info(
+        f"Finished epoch {epoch_num:02d} in {str(datetime.now() - epoch_start_time)[:-7]}, "
+        f"average epoch triplet loss = {epoch_losses.mean():.4f}"
     )
-    writer.add_scalar("Train/AvgLoss", avg_loss, epoch)
 
+    # Compute recalls on validation set
+    recalls, recalls_str = test.test(args, val_ds, model)
+    logging.info(f"Recalls on val set {val_ds}: {recalls_str}")
 
-def main():
-    restore_var = [
-        "lr",
-        "lrStep",
-        "lrGamma",
-        "weightDecay",
-        "momentum",
-        "runsPath",
-        "savePath",
-        "arch",
-        "num_clusters",
-        "pooling",
-        "optim",
-        "margin",
-        "seed",
-        "patience",
-    ]
-    if opt.resume:
-        flag_file = join(opt.resume, "checkpoints", "flags.json")
-        if exists(flag_file):
-            with open(flag_file, "r") as f:
-                stored_flags = {
-                    "--" + k: str(v)
-                    for k, v in json.load(f).items()
-                    if k in restore_var
-                }
-                to_del = []
-                for flag, val in stored_flags.items():
-                    for act in parser._actions:
-                        if act.dest == flag[2:]:
-                            # store_true / store_false args don't accept arguments, filter these
-                            if type(act.const) == type(True):
-                                if val == str(act.default):
-                                    to_del.append(flag)
-                                else:
-                                    stored_flags[flag] = ""
-                for flag in to_del:
-                    del stored_flags[flag]
+    is_best = recalls[1] > best_r5
 
-                train_flags = [
-                    x for x in list(sum(stored_flags.items(), tuple())) if len(x) > 0
-                ]
-                print("Restored flags:", train_flags)
-                opt = parser.parse_args(train_flags, namespace=opt)
+    # Save checkpoint, which contains all training parameters
+    util.save_checkpoint(
+        args,
+        {
+            "epoch_num": epoch_num,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "recalls": recalls,
+            "best_r5": best_r5,
+            "not_improved_num": not_improved_num,
+        },
+        is_best,
+        filename="last_model.pth",
+    )
 
-    print(opt)
-
-    if opt.dataset.lower() == "pittsburgh":
-        import dataset.pittsburgh_dataset as dataset
+    # If recall@5 did not improve for "many" epochs, stop training
+    if is_best:
+        logging.info(
+            f"Improved: previous best R@5 = {best_r5:.1f}, current R@5 = {recalls[1]:.1f}"
+        )
+        best_r5 = recalls[1]
+        not_improved_num = 0
     else:
-        raise Exception("Unknown dataset")
-
-    cuda = not opt.nocuda
-    if cuda and not torch.cuda.is_available():
-        raise Exception("No GPU found, please run with --nocuda")
-
-    device = torch.device("cuda" if cuda else "cpu")
-
-    random.seed(opt.seed)
-    np.random.seed(opt.seed)
-    torch.manual_seed(opt.seed)
-    if cuda:
-        torch.cuda.manual_seed(opt.seed)
-
-    print("===> Loading dataset(s)")
-    if opt.mode.lower() == "train":
-        whole_train_set = dataset.get_whole_training_set()
-        whole_training_data_loader = DataLoader(
-            dataset=whole_train_set,
-            num_workers=opt.threads,
-            batch_size=opt.cacheBatchSize,
-            shuffle=False,
-            pin_memory=cuda,
+        not_improved_num += 1
+        logging.info(
+            f"Not improved: {not_improved_num} / {args.patience}: best R@5 = {best_r5:.1f}, current R@5 = {recalls[1]:.1f}"
         )
-
-        train_set = dataset.get_training_query_set(opt.margin)
-
-        print("====> Training query set:", len(train_set))
-        whole_test_set = dataset.get_whole_val_set()
-        print("===> Evaluating on val set, query count:", whole_test_set.dbStruct.numQ)
-    elif opt.mode.lower() == "test":
-        if opt.split.lower() == "test":
-            whole_test_set = dataset.get_whole_test_set()
-            print("===> Evaluating on test set")
-        elif opt.split.lower() == "test250k":
-            whole_test_set = dataset.get_250k_test_set()
-            print("===> Evaluating on test250k set")
-        elif opt.split.lower() == "train":
-            whole_test_set = dataset.get_whole_training_set()
-            print("===> Evaluating on train set")
-        elif opt.split.lower() == "val":
-            whole_test_set = dataset.get_whole_val_set()
-            print("===> Evaluating on val set")
-        else:
-            raise ValueError("Unknown dataset split: " + opt.split)
-        print("====> Query count:", whole_test_set.dbStruct.numQ)
-    elif opt.mode.lower() == "cluster":
-        whole_train_set = dataset.get_whole_training_set(onlyDB=True)
-
-    print("===> Building model")
-
-    pretrained = not opt.fromscratch
-    if opt.arch.lower() == "alexnet":
-        encoder_dim = 256
-        encoder = models.alexnet(pretrained=pretrained)
-        # capture only features and remove last relu and maxpool
-        layers = list(encoder.features.children())[:-2]
-
-        if pretrained:
-            # if using pretrained only train conv5
-            for l in layers[:-1]:
-                for p in l.parameters():
-                    p.requires_grad = False
-
-    elif opt.arch.lower() == "vgg16":
-        encoder_dim = 512
-        encoder = models.vgg16(pretrained=pretrained)
-        # capture only feature part and remove last relu and maxpool
-        layers = list(encoder.features.children())[:-2]
-
-        if pretrained:
-            # if using pretrained then only train conv5_1, conv5_2, and conv5_3
-            for l in layers[:-5]:
-                for p in l.parameters():
-                    p.requires_grad = False
-
-    if opt.mode.lower() == "cluster" and not opt.vladv2:
-        layers.append(L2Norm())
-
-    encoder = nn.Sequential(*layers)
-    model = nn.Module()
-    model.add_module("encoder", encoder)
-
-    if opt.mode.lower() != "cluster":
-        if opt.pooling.lower() == "netvlad":
-            net_vlad = NetVLAD(
-                num_clusters=opt.num_clusters, dim=encoder_dim, vladv2=opt.vladv2
+        if not_improved_num >= args.patience:
+            logging.info(
+                f"Performance did not improve for {not_improved_num} epochs. Stop training."
             )
-            if not opt.resume:
-                if opt.mode.lower() == "train":
-                    initcache = join(
-                        opt.dataPath,
-                        "centroids",
-                        opt.arch
-                        + "_"
-                        + train_set.dataset
-                        + "_"
-                        + str(opt.num_clusters)
-                        + "_desc_cen.hdf5",
-                    )
-                else:
-                    initcache = join(
-                        opt.dataPath,
-                        "centroids",
-                        opt.arch
-                        + "_"
-                        + whole_test_set.dataset
-                        + "_"
-                        + str(opt.num_clusters)
-                        + "_desc_cen.hdf5",
-                    )
-
-                if not exists(initcache):
-                    raise FileNotFoundError(
-                        "Could not find clusters, please run with --mode=cluster before proceeding"
-                    )
-
-                with h5py.File(initcache, mode="r") as h5:
-                    clsts = h5.get("centroids")[...]
-                    traindescs = h5.get("descriptors")[...]
-                    net_vlad.init_params(clsts, traindescs)
-                    del clsts, traindescs
-
-            model.add_module("pool", net_vlad)
-        elif opt.pooling.lower() == "max":
-            global_pool = nn.AdaptiveMaxPool2d((1, 1))
-            model.add_module("pool", nn.Sequential(*[global_pool, Flatten(), L2Norm()]))
-        elif opt.pooling.lower() == "avg":
-            global_pool = nn.AdaptiveAvgPool2d((1, 1))
-            model.add_module("pool", nn.Sequential(*[global_pool, Flatten(), L2Norm()]))
-        else:
-            raise ValueError("Unknown pooling type: " + opt.pooling)
-
-    isParallel = False
-    if opt.nGPU > 1 and torch.cuda.device_count() > 1:
-        model.encoder = nn.DataParallel(model.encoder)
-        if opt.mode.lower() != "cluster":
-            model.pool = nn.DataParallel(model.pool)
-        isParallel = True
-
-    if not opt.resume:
-        model = model.to(device)
-
-    if opt.mode.lower() == "train":
-        if opt.optim.upper() == "ADAM":
-            optimizer = optim.Adam(
-                filter(lambda p: p.requires_grad, model.parameters()), lr=opt.lr
-            )  # , betas=(0,0.9))
-        elif opt.optim.upper() == "SGD":
-            optimizer = optim.SGD(
-                filter(lambda p: p.requires_grad, model.parameters()),
-                lr=opt.lr,
-                momentum=opt.momentum,
-                weight_decay=opt.weightDecay,
-            )
-
-            scheduler = optim.lr_scheduler.StepLR(
-                optimizer, step_size=opt.lrStep, gamma=opt.lrGamma
-            )
-        else:
-            raise ValueError("Unknown optimizer: " + opt.optim)
-
-        # original paper/code doesn't sqrt() the distances, we do, so sqrt() the margin, I think :D
-        criterion = nn.TripletMarginLoss(
-            margin=opt.margin**0.5, p=2, reduction="sum"
-        ).to(device)
-
-    if opt.resume:
-        if opt.ckpt.lower() == "latest":
-            resume_ckpt = join(opt.resume, "checkpoints", "checkpoint.pth.tar")
-        elif opt.ckpt.lower() == "best":
-            resume_ckpt = join(opt.resume, "checkpoints", "model_best.pth.tar")
-
-        if isfile(resume_ckpt):
-            print("=> loading checkpoint '{}'".format(resume_ckpt))
-            checkpoint = torch.load(
-                resume_ckpt, map_location=lambda storage, loc: storage
-            )
-            opt.start_epoch = checkpoint["epoch"]
-            best_metric = checkpoint["best_score"]
-            model.load_state_dict(checkpoint["state_dict"])
-            model = model.to(device)
-            if opt.mode == "train":
-                optimizer.load_state_dict(checkpoint["optimizer"])
-            print(
-                "=> loaded checkpoint '{}' (epoch {})".format(
-                    resume_ckpt, checkpoint["epoch"]
-                )
-            )
-        else:
-            print("=> no checkpoint found at '{}'".format(resume_ckpt))
-
-    if opt.mode.lower() == "test":
-        print("===> Running evaluation step")
-        epoch = 1
-        recalls = test(opt, whole_test_set, model, encoder_dim, device, cuda, writer, epoch, write_tboard=False)
-    elif opt.mode.lower() == "cluster":
-        print("===> Calculating descriptors and clusters")
-        get_clusters(whole_train_set)
-    elif opt.mode.lower() == "train":
-        print("===> Training model")
-        writer = SummaryWriter(
-            log_dir=join(
-                opt.runsPath,
-                datetime.now().strftime("%b%d_%H-%M-%S")
-                + "_"
-                + opt.arch
-                + "_"
-                + opt.pooling,
-            )
-        )
-
-        # write checkpoints in logdir
-        logdir = writer.file_writer.get_logdir()
-        opt.savePath = join(logdir, opt.savePath)
-        if not opt.resume:
-            makedirs(opt.savePath)
-
-        with open(join(opt.savePath, "flags.json"), "w") as f:
-            f.write(json.dumps({k: v for k, v in vars(opt).items()}))
-        print("===> Saving state to:", logdir)
-
-        not_improved = 0
-        best_score = 0
-        for epoch in range(opt.start_epoch + 1, opt.nEpochs + 1):
-            if opt.optim.upper() == "SGD":
-                scheduler.step(epoch)
-            train(epoch, 
-                  train_set,
-                  model,
-                  optimizer,
-                  encoder_dim,
-                  criterion,
-                  writer,
-                  whole_training_data_loader,
-                  whole_train_set,
-                  device,
-                  cuda,
-                  dataset
-                )
-            if (epoch % opt.evalEvery) == 0:
-                recalls = test(opt, whole_test_set, model, encoder_dim, device, cuda, writer, epoch, write_tboard=True)
-                is_best = recalls[5] > best_score
-                if is_best:
-                    not_improved = 0
-                    best_score = recalls[5]
-                else:
-                    not_improved += 1
-
-                save_checkpoint(
-                    opt,
-                    {
-                        "epoch": epoch,
-                        "state_dict": model.state_dict(),
-                        "recalls": recalls,
-                        "best_score": best_score,
-                        "optimizer": optimizer.state_dict(),
-                        "parallel": isParallel,
-                    },
-                    is_best,
-                )
-
-                if opt.patience > 0 and not_improved > (opt.patience / opt.evalEvery):
-                    print(
-                        "Performance did not improve for",
-                        opt.patience,
-                        "epochs. Stopping.",
-                    )
-                    break
-
-        print("=> Best Recall@5: {:.4f}".format(best_score), flush=True)
-        writer.close()
+            break
 
 
-if __name__ == "__main__":
-    main()
+logging.info(f"Best R@5: {best_r5:.1f}")
+logging.info(
+    f"Trained for {epoch_num+1:02d} epochs, in total in {str(datetime.now() - start_time)[:-7]}"
+)
+
+#### Test best model on test set
+best_model_state_dict = torch.load(join(args.save_dir, "best_model.pth"))[
+    "model_state_dict"
+]
+model.load_state_dict(best_model_state_dict)
+
+recalls, recalls_str = test.test(args, test_ds, model, test_method=args.test_method)
+logging.info(f"Recalls on {test_ds}: {recalls_str}")
