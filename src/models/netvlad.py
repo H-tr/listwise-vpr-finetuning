@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
-from utils import print_nb_params
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from os.path import join, exists, isfile, realpath, dirname
 from os import makedirs, remove, chdir, environ

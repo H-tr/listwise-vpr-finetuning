@@ -162,3 +162,4 @@ cython_debug/
 data/raw/*
 data/processed/*
 .vscode
+experiments/logs/*

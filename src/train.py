@@ -10,7 +10,7 @@ from datetime import datetime
 import torchvision.transforms as transforms
 from torch.utils.data.dataloader import DataLoader
 
-from src.utils import util
+from utils import util
 from utils import arg_parser
 from evaluation import test_utils as test
 from utils import commons
@@ -23,7 +23,7 @@ torch.backends.cudnn.benchmark = True  # Provides a speedup
 #### Initial setup: parser, logging...
 args = arg_parser.parse_arguments()
 start_time = datetime.now()
-args.save_dir = join("logs", args.save_dir, start_time.strftime("%Y-%m-%d_%H-%M-%S"))
+args.save_dir = join("experiments/logs", args.save_dir, start_time.strftime("%Y-%m-%d_%H-%M-%S"))
 commons.setup_logging(args.save_dir)
 commons.make_deterministic(args.seed)
 logging.info(f"Arguments: {args}")
@@ -47,7 +47,7 @@ test_ds = datasets_ws.BaseDataset(args, args.datasets_folder, args.dataset_name,
 logging.info(f"Test set: {test_ds}")
 
 #### Initialize model
-model = network.VPRNetwork(args)
+model = network.VPRNetwork(args.backbone, args.aggregation, args.netvlad_clusters)
 model = model.to(args.device)
 if args.aggregation in ["netvlad", "crn"]:  # If using NetVLAD layer, initialize it
     if not args.resume:

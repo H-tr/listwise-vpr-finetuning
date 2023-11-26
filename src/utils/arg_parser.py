@@ -87,16 +87,11 @@ def parse_arguments():
         type=str,
         default="resnet18conv4",
         choices=[
-            "alexnet",
-            "vgg16",
-            "resnet18conv4",
-            "resnet18conv5",
-            "resnet50conv4",
-            "resnet50conv5",
-            "resnet101conv4",
-            "resnet101conv5",
-            "cct384",
-            "vit",
+            "ResNet18",
+            "ResNet50",
+            "ResNet101",
+            "ResNet152",
+            "VGG16",
         ],
         help="_",
     )
@@ -113,14 +108,6 @@ def parse_arguments():
         default="netvlad",
         choices=[
             "netvlad",
-            "gem",
-            "spoc",
-            "mac",
-            "rmac",
-            "crn",
-            "rrm",
-            "cls",
-            "seqpool",
         ],
     )
     parser.add_argument(
@@ -242,7 +229,7 @@ def parse_arguments():
         "--save_dir",
         type=str,
         default="default",
-        help="Folder name of the current run (saved in ./logs/)",
+        help="Folder name of the current run (saved in ./experiments/logs/)",
     )
     args = parser.parse_args()
 
@@ -255,11 +242,6 @@ def parse_arguments():
                 + "the DATASETS_FOLDER environment variable as such \n"
                 + "export DATASETS_FOLDER=../datasets_vg/datasets"
             )
-
-    if args.aggregation == "crn" and args.resume is None:
-        raise ValueError(
-            "CRN must be resumed from a trained NetVLAD checkpoint, but you set resume=None."
-        )
 
     if args.queries_per_epoch % args.cache_refresh_rate != 0:
         raise ValueError(
@@ -303,14 +285,11 @@ def parse_arguments():
             )
 
     if args.backbone in [
-        "alexnet",
-        "vgg16",
-        "resnet18conv4",
-        "resnet18conv5",
-        "resnet50conv4",
-        "resnet50conv5",
-        "resnet101conv4",
-        "resnet101conv5",
+        "ResNet18",
+        "ResNet50",
+        "ResNet101",
+        "ResNet152",
+        "VGG16",
     ]:
         if args.aggregation in ["cls", "seqpool"]:
             raise ValueError(
