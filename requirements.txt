@@ -6,3 +6,6 @@ scikit-learn
 icecream
 pandas
 tqdm
+h5py
+faiss-gpu
+tensorboardX

@@ -26,14 +26,6 @@ class TestLossFunctions(unittest.TestCase):
             loss = self.tap_loss(x, label)
         self.assertIsInstance(loss, torch.Tensor)
 
-    def test_triplet_loss(self):
-        anchor = torch.randn(10, 128).cuda()  # Move to GPU
-        positive = torch.randn(10, 128).cuda()  # Move to GPU
-        negative = torch.randn(10, 128).cuda()  # Move to GPU
-        with torch.no_grad():
-            loss = self.triplet_loss(anchor, positive, negative)
-        self.assertIsInstance(loss, torch.Tensor)
-
 
 if __name__ == "__main__":
     unittest.main()

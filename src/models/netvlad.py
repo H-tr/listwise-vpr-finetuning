@@ -1,9 +1,14 @@
+from math import ceil
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 from utils import print_nb_params
+from torch.utils.data import DataLoader, SubsetRandomSampler
+from os.path import join, exists, isfile, realpath, dirname
+from os import makedirs, remove, chdir, environ
+import faiss, h5py
 
 
 # based on https://github.com/lyakaap/NetVLAD-pytorch/blob/master/netvlad.py
@@ -92,3 +97,93 @@ class NetVLAD(nn.Module):
         vlad = F.normalize(vlad, p=2, dim=1)  # L2 normalize
 
         return vlad
+
+
+class L2Norm(nn.Module):
+    def __init__(self, dim=1):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, input):
+        return F.normalize(input, p=2, dim=self.dim)
+
+
+class Flatten(nn.Module):
+    def forward(self, input):
+        return input.view(input.size(0), -1)
+
+
+def get_clusters(opt, cluster_set, model, encoder_dim, device, cuda):
+    nDescriptors = 50000
+    nPerImage = 100
+    nIm = ceil(nDescriptors / nPerImage)
+
+    sampler = SubsetRandomSampler(
+        np.random.choice(len(cluster_set), nIm, replace=False)
+    )
+    data_loader = DataLoader(
+        dataset=cluster_set,
+        num_workers=opt.threads,
+        batch_size=opt.cacheBatchSize,
+        shuffle=False,
+        pin_memory=cuda,
+        sampler=sampler,
+    )
+
+    if not exists(join(opt.dataPath, "centroids")):
+        makedirs(join(opt.dataPath, "centroids"))
+
+    initcache = join(
+        opt.dataPath,
+        "centroids",
+        opt.arch
+        + "_"
+        + cluster_set.dataset
+        + "_"
+        + str(opt.num_clusters)
+        + "_desc_cen.hdf5",
+    )
+    with h5py.File(initcache, mode="w") as h5:
+        with torch.no_grad():
+            model.eval()
+            print("====> Extracting Descriptors")
+            dbFeat = h5.create_dataset(
+                "descriptors", [nDescriptors, encoder_dim], dtype=np.float32
+            )
+
+            for iteration, (input, indices) in enumerate(data_loader, 1):
+                input = input.to(device)
+                image_descriptors = (
+                    model.encoder(input)
+                    .view(input.size(0), encoder_dim, -1)
+                    .permute(0, 2, 1)
+                )
+
+                batchix = (iteration - 1) * opt.cacheBatchSize * nPerImage
+                for ix in range(image_descriptors.size(0)):
+                    # sample different location for each image in batch
+                    sample = np.random.choice(
+                        image_descriptors.size(1), nPerImage, replace=False
+                    )
+                    startix = batchix + ix * nPerImage
+                    dbFeat[startix : startix + nPerImage, :] = (
+                        image_descriptors[ix, sample, :].detach().cpu().numpy()
+                    )
+
+                if iteration % 50 == 0 or len(data_loader) <= 10:
+                    print(
+                        "==> Batch ({}/{})".format(
+                            iteration, ceil(nIm / opt.cacheBatchSize)
+                        ),
+                        flush=True,
+                    )
+                del input, image_descriptors
+
+        print("====> Clustering..")
+        niter = 100
+        kmeans = faiss.Kmeans(encoder_dim, opt.num_clusters, niter=niter, verbose=False)
+        kmeans.train(dbFeat[...])
+
+        print("====> Storing centroids", kmeans.centroids.shape)
+        h5.create_dataset("centroids", data=kmeans.centroids)
+        print("====> Done!")

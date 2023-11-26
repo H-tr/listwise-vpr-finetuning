@@ -4,7 +4,7 @@ import multiprocessing
 
 import test
 from models import network
-from dataset.seq_dataloader import SeqDataset
+from dataset.seq_dataset import SeqDataset
 
 
 def evaluate_model(
