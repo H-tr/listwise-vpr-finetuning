@@ -12,7 +12,7 @@ from collections import defaultdict
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-class TrainDataset(torch.utils.data.Dataset):
+class SFXLDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         args,
@@ -83,7 +83,7 @@ class TrainDataset(torch.utils.data.Dataset):
         for image_path in selected_image_paths:
             image_path = os.path.join(self.dataset_folder, image_path)
             try:
-                pil_image = TrainDataset.open_image(image_path)
+                pil_image = SFXLDataset.open_image(image_path)
             except Exception as e:
                 logging.info(
                     f"ERROR image {image_path} couldn't be opened, it might be corrupted."
