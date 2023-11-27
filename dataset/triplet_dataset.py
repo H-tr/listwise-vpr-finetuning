@@ -254,10 +254,10 @@ class TripletsDataset(BaseDataset):
             )
         # Remove queries without positives
         self.hard_positives_per_query = np.delete(
-            self.hard_positives_per_query, queries_without_any_hard_positive
+            self.hard_positives_per_query, queries_without_any_hard_positive, axis=0
         )
         self.queries_paths = np.delete(
-            self.queries_paths, queries_without_any_hard_positive
+            self.queries_paths, queries_without_any_hard_positive, axis=0
         )
 
         # Recompute images_paths and queries_num because some queries might have been removed

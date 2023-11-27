@@ -85,7 +85,7 @@ def parse_arguments():
     parser.add_argument(
         "--backbone",
         type=str,
-        default="resnet18conv4",
+        default="ResNet18",
         choices=[
             "ResNet18",
             "ResNet50",
@@ -105,9 +105,11 @@ def parse_arguments():
     parser.add_argument(
         "--aggregation",
         type=str,
-        default="netvlad",
+        default="NetVLAD",
         choices=[
-            "netvlad",
+            "NetVLAD",
+            "CosPlace",
+            "MixVPR",
         ],
     )
     parser.add_argument(

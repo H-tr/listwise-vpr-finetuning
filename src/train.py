@@ -47,9 +47,9 @@ test_ds = datasets_ws.BaseDataset(args, args.datasets_folder, args.dataset_name,
 logging.info(f"Test set: {test_ds}")
 
 #### Initialize model
-model = network.VPRNetwork(args.backbone, args.aggregation, args.netvlad_clusters)
+model = network.VPRNetwork(args)
 model = model.to(args.device)
-if args.aggregation in ["netvlad", "crn"]:  # If using NetVLAD layer, initialize it
+if args.aggregation in ["NetVLAD"]:  # If using NetVLAD layer, initialize it
     if not args.resume:
         triplets_ds.is_inference = True
         model.aggregation.initialize_netvlad_layer(args, triplets_ds, model.backbone)

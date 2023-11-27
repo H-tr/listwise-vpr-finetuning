@@ -19,21 +19,10 @@ CHANNELS_NUM_IN_LAST_CONV = {
 
 
 class VPRNetwork(nn.Module):
-    def __init__(
-        self,
-        backbone: str,
-        aggregation: str,
-        n_clusters: int = 64,
-        output_dim: int = 512,
-        out_rows: int = 4,
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.backbone, self.feature_dimention = get_backbone(backbone)
-        self.aggregation = get_aggregation(
-            aggregation, self.feature_dimention, n_clusters, output_dim, out_rows
-        )
+    def __init__(self, args) -> None:
+        super().__init__()
+        self.backbone = get_backbone(args)
+        self.aggregation = get_aggregation(args)
 
     def forward(self, x):
         x = self.backbone(x)
@@ -61,20 +50,20 @@ def get_pretrained_torchvision_model(backbone_name: str) -> torch.nn.Module:
     return model
 
 
-def get_backbone(backbone_name: str):
-    backbone = get_pretrained_torchvision_model(backbone_name)
-    if backbone_name.startswith("ResNet"):
+def get_backbone(args):
+    backbone = get_pretrained_torchvision_model(args.backbone)
+    if args.backbone.startswith("ResNet"):
         for name, child in backbone.named_children():
             if name == "layer3":  # Freeze layers before conv_3
                 break
             for params in child.parameters():
                 params.requires_grad = False
         logging.debug(
-            f"Train only layer3 and layer4 of the {backbone_name}, freeze the previous ones"
+            f"Train only layer3 and layer4 of the {args.backbone}, freeze the previous ones"
         )
         layers = list(backbone.children())[:-2]  # Remove avg pooling and FC layer
 
-    elif backbone_name == "VGG16":
+    elif args.backbone == "VGG16":
         layers = list(backbone.features.children())[
             :-2
         ]  # Remove avg pooling and FC layer
@@ -85,29 +74,27 @@ def get_backbone(backbone_name: str):
 
     backbone = torch.nn.Sequential(*layers)
 
-    features_dim = CHANNELS_NUM_IN_LAST_CONV[backbone_name]
+    args.features_dim = CHANNELS_NUM_IN_LAST_CONV[args.backbone]
 
-    return backbone, features_dim
+    return backbone
 
 
 def get_aggregation(
-    aggregation_name: str,
-    feature_dim: int,
-    n_clusters: int,
-    out_dim: int,
-    out_rows: int,
+    args,
+    out_dim: int = 512,
+    out_rows: int = 4,
 ) -> torch.nn.Module:
-    if aggregation_name == "NetVLAD":
-        return NetVLAD(num_clusters=n_clusters, dim=feature_dim)
-    elif aggregation_name == "CosPlace":
-        return CosPlace(in_dim=feature_dim, out_dim=out_dim)
-    elif aggregation_name == "MixVPR":
+    if args.aggregation == "NetVLAD":
+        return NetVLAD(clusters_num=args.netvlad_clusters, dim=args.features_dim)
+    elif args.aggregation == "CosPlace":
+        return CosPlace(in_dim=args.features_dim, out_dim=out_dim)
+    elif args.aggregation == "MixVPR":
         return MixVPR(
-            in_channels=feature_dim,
+            in_channels=args.features_dim,
             out_channels=out_dim,
             mix_depth=4,
             mlp_ratio=1,
             out_rows=out_rows,
         )
     else:
-        raise ValueError(f"Unknown aggregation: {aggregation_name}")
+        raise ValueError(f"Unknown aggregation: {args.aggregation}")
