@@ -51,4 +51,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Use this space to list resources you find helpful and would like to give credit to. I've included a few of my favorites to kick things off!
 
-* [NetVLAD PyTorch](https://github.com/Nanne/pytorch-NetVlad/blob/master/netvlad.py)
+- [NetVLAD PyTorch](https://github.com/Nanne/pytorch-NetVlad/blob/master/netvlad.py)
+- [Deep Visual Geo-Localization Benchmark](https://github.com/gmberton/deep-visual-geo-localization-benchmark)
