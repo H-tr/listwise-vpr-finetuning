@@ -34,21 +34,21 @@ from google_drive_downloader import GoogleDriveDownloader as gdd
 from models import network
 
 OFF_THE_SHELF_RADENOVIC = {
-    'resnet50conv5_sfm'    : 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet50-gem-w-97bf910.pth',
-    'resnet101conv5_sfm'   : 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth',
-    'resnet50conv5_gldv1'  : 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/gl18/gl18-tl-resnet50-gem-w-83fdc30.pth',
-    'resnet101conv5_gldv1' : 'http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/gl18/gl18-tl-resnet101-gem-w-a4d43db.pth',
+    "resnet50conv5_sfm": "http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet50-gem-w-97bf910.pth",
+    "resnet101conv5_sfm": "http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/retrieval-SfM-120k/rSfM120k-tl-resnet101-gem-w-a155e54.pth",
+    "resnet50conv5_gldv1": "http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/gl18/gl18-tl-resnet50-gem-w-83fdc30.pth",
+    "resnet101conv5_gldv1": "http://cmp.felk.cvut.cz/cnnimageretrieval/data/networks/gl18/gl18-tl-resnet101-gem-w-a4d43db.pth",
 }
 
 OFF_THE_SHELF_NAVER = {
-    "resnet50conv5"  : "1oPtE_go9tnsiDLkWjN4NMpKjh-_md1G5",
-    'resnet101conv5' : "1UWJGDuHtzaQdFhSMojoYVQjmCXhIwVvy"
+    "resnet50conv5": "1oPtE_go9tnsiDLkWjN4NMpKjh-_md1G5",
+    "resnet101conv5": "1UWJGDuHtzaQdFhSMojoYVQjmCXhIwVvy",
 }
 
 ######################################### SETUP #########################################
 args = arg_parser.parse_arguments()
 start_time = datetime.now()
-args.save_dir = join("test", args.save_dir, start_time.strftime('%Y-%m-%d_%H-%M-%S'))
+args.save_dir = join("test", args.save_dir, start_time.strftime("%Y-%m-%d_%H-%M-%S"))
 commons.setup_logging(args.save_dir)
 commons.make_deterministic(args.seed)
 logging.info(f"Arguments: {args}")
@@ -63,16 +63,21 @@ if args.aggregation in ["netvlad", "crn"]:
 
 if args.off_the_shelf.startswith("radenovic") or args.off_the_shelf.startswith("naver"):
     if args.off_the_shelf.startswith("radenovic"):
-        pretrain_dataset_name = args.off_the_shelf.split("_")[1]  # sfm or gldv1 datasets
+        pretrain_dataset_name = args.off_the_shelf.split("_")[
+            1
+        ]  # sfm or gldv1 datasets
         url = OFF_THE_SHELF_RADENOVIC[f"{args.backbone}_{pretrain_dataset_name}"]
         state_dict = load_url(url, model_dir=join("data", "off_the_shelf_nets"))
     else:
         # This is a hacky workaround to maintain compatibility
-        sys.modules['sklearn.decomposition.pca'] = sklearn.decomposition._pca
+        sys.modules["sklearn.decomposition.pca"] = sklearn.decomposition._pca
         zip_file_path = join("data", "off_the_shelf_nets", args.backbone + "_naver.zip")
         if not os.path.exists(zip_file_path):
-            gdd.download_file_from_google_drive(file_id=OFF_THE_SHELF_NAVER[args.backbone],
-                                                dest_path=zip_file_path, unzip=True)
+            gdd.download_file_from_google_drive(
+                file_id=OFF_THE_SHELF_NAVER[args.backbone],
+                dest_path=zip_file_path,
+                unzip=True,
+            )
         if args.backbone == "resnet50conv5":
             state_dict_filename = "Resnet50-AP-GeM.pt"
         elif args.backbone == "resnet101conv5":

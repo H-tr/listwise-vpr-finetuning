@@ -85,13 +85,18 @@ def parse_arguments():
     parser.add_argument(
         "--backbone",
         type=str,
-        default="ResNet18",
+        default="resnet18conv4",
         choices=[
-            "ResNet18",
-            "ResNet50",
-            "ResNet101",
-            "ResNet152",
-            "VGG16",
+            "alexnet",
+            "vgg16",
+            "resnet18conv4",
+            "resnet18conv5",
+            "resnet50conv4",
+            "resnet50conv5",
+            "resnet101conv4",
+            "resnet101conv5",
+            "cct384",
+            "vit",
         ],
         help="_",
     )
@@ -105,11 +110,17 @@ def parse_arguments():
     parser.add_argument(
         "--aggregation",
         type=str,
-        default="NetVLAD",
+        default="netvlad",
         choices=[
-            "NetVLAD",
-            "CosPlace",
-            "MixVPR",
+            "netvlad",
+            "gem",
+            "spoc",
+            "mac",
+            "rmac",
+            "crn",
+            "rrm",
+            "cls",
+            "seqpool",
         ],
     )
     parser.add_argument(
@@ -245,6 +256,11 @@ def parse_arguments():
                 + "export DATASETS_FOLDER=../datasets_vg/datasets"
             )
 
+    if args.aggregation == "crn" and args.resume is None:
+        raise ValueError(
+            "CRN must be resumed from a trained NetVLAD checkpoint, but you set resume=None."
+        )
+
     if args.queries_per_epoch % args.cache_refresh_rate != 0:
         raise ValueError(
             "Ensure that queries_per_epoch is divisible by cache_refresh_rate, "
@@ -287,11 +303,14 @@ def parse_arguments():
             )
 
     if args.backbone in [
-        "ResNet18",
-        "ResNet50",
-        "ResNet101",
-        "ResNet152",
-        "VGG16",
+        "alexnet",
+        "vgg16",
+        "resnet18conv4",
+        "resnet18conv5",
+        "resnet50conv4",
+        "resnet50conv5",
+        "resnet101conv4",
+        "resnet101conv5",
     ]:
         if args.aggregation in ["cls", "seqpool"]:
             raise ValueError(

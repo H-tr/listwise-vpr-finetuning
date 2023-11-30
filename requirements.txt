@@ -8,7 +8,8 @@ icecream
 pandas
 tqdm
 h5py
-faiss-gpu
+faiss-cpu
 tensorboardX
 torchscan
 googledrivedownloader
+transformers
